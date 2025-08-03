@@ -1,0 +1,13 @@
+name: Nuke Builds
+
+on:
+  workflow_dispatch:
+
+jobs:
+  empty-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: builds
+      - run: git rm -rf . && git commit --allow-empty -m "Reset builds branch to empty" && git push origin builds
