@@ -2,10 +2,16 @@ package com.github.diamondminer88.plugins
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Color
-import android.media.*
+import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.MediaMetadataRetriever
+import android.media.MediaPlayer
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.*
 import android.widget.FrameLayout.LayoutParams.MATCH_PARENT
@@ -29,21 +35,34 @@ import com.google.android.material.card.MaterialCardView
 import com.lytefast.flexinput.R
 import java.io.File
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 
 @Suppress("unused")
 @SuppressLint("SetTextI18n")
 @AliucordPlugin
 class AudioPlayer : Plugin() {
     private val playerBarId = View.generateViewId()
+    private val loadingBarId = View.generateViewId()
     private val attachmentCardId = Utils.getResId("chat_list_item_attachment_card", "id")
     private val validFileExtensions = arrayOf(
         "webm", "mp3", "aac", "m4a", "wav", "flac", "wma", "opus", "ogg"
     )
 
-    private val allPlayerBarResets = mutableListOf<() -> Unit>()
-
     private var globalCurrentPlayer: MediaPlayer? = null
     private var globalCleanup: (() -> Unit)? = null
+    private var globalPlayingUrl: String? = null
+    private var globalIsPlaying: Boolean = false
+
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var audioManager: AudioManager? = null
+
+    private var globalIsCompleted: Boolean = false
+
+    private var currentActiveBarReset: (() -> Unit)? = null
+    private var previousActiveBarReset: (() -> Unit)? = null
+
+    private val durationCache = ConcurrentHashMap<String, Long>()
+    private val oggFileCache = ConcurrentHashMap<String, File>()
 
     private fun isAudioFile(filename: String?): Boolean {
         if (filename == null) return false
@@ -55,7 +74,6 @@ class AudioPlayer : Plugin() {
         val hrs = ms / 3_600_000
         val mins = ms / 60000
         val secs = ms / 1000 % 60
-
         return if (hrs == 0L)
             String.format("%d:%02d", mins, secs)
         else
@@ -63,16 +81,63 @@ class AudioPlayer : Plugin() {
     }
 
     private fun stopCurrentPlayer() {
-        try { globalCleanup?.invoke() } catch (_: Exception) {}
-        try { globalCurrentPlayer?.stop() } catch (_: Exception) {}
-        try { globalCurrentPlayer?.release() } catch (_: Exception) {}
+        currentActiveBarReset?.invoke()
+        previousActiveBarReset?.invoke()
+        currentActiveBarReset = null
+        previousActiveBarReset = null
+
+        globalCleanup?.invoke()
+        globalCurrentPlayer?.setOnCompletionListener(null)
+        globalCurrentPlayer?.setOnPreparedListener(null)
+        globalCurrentPlayer?.stop()
+        globalCurrentPlayer?.release()
+
         globalCurrentPlayer = null
         globalCleanup = null
+        globalIsPlaying = false
+        globalPlayingUrl = null
+        globalIsCompleted = false 
+    }
 
-        allPlayerBarResets.forEach { it() }
+    fun requestAudioFocus(ctx: Context) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            audioManager = audioManager ?: ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener { }
+                .build()
+            audioManager!!.requestAudioFocus(focusRequest)
+        } else {
+            val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+            var keyEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_STOP)
+            intent.putExtra(Intent.EXTRA_KEY_EVENT, keyEvent)
+            ctx.sendOrderedBroadcast(intent, null)
+
+            keyEvent = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_STOP)
+            intent.putExtra(Intent.EXTRA_KEY_EVENT, keyEvent)
+            ctx.sendOrderedBroadcast(intent, null)
+        }
+    }
+
+    private fun getOggCacheDir(cacheDir: File): File {
+        val oggCacheDir = File(cacheDir, "audio")
+        if (!oggCacheDir.exists()) oggCacheDir.mkdirs()
+        return oggCacheDir
+    }
+
+    fun deleteOggCacheFiles(cacheDir: File) {
+        val oggCacheDir = getOggCacheDir(cacheDir)
+        oggCacheDir.deleteRecursively()
     }
 
     override fun start(context: Context) {
+        deleteOggCacheFiles(context.cacheDir)
+
         patcher.after<WidgetChatListAdapterItemAttachment>(
             "configureFileData",
             MessageAttachment::class.java,
@@ -83,74 +148,74 @@ class AudioPlayer : Plugin() {
             val card = root.findViewById<MaterialCardView>(attachmentCardId)
             val ctx = root.context
 
-            card.findViewById<MaterialCardView>(playerBarId)?.let { card.removeView(it) }
-            val loadingBarId = playerBarId + 1
-            card.findViewById<ProgressBar>(loadingBarId)?.let { card.removeView(it) }
+            card.findViewById<MaterialCardView>(playerBarId)?.visibility = View.GONE
+            card.findViewById<ProgressBar>(loadingBarId)?.visibility = View.GONE
 
             if (!isAudioFile(messageAttachment.filename)) return@after
 
-            val loadingBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
-                id = loadingBarId
-                isIndeterminate = true
-                layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, 6.dp).apply {
-                    gravity = Gravity.BOTTOM
+            val existingLoadingBar = card.findViewById<ProgressBar>(loadingBarId)
+            if (existingLoadingBar != null) {
+                existingLoadingBar.visibility = View.VISIBLE
+            } else {
+                val loadingBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    id = loadingBarId
+                    isIndeterminate = true
+                    layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, 6.dp).apply {
+                        gravity = Gravity.BOTTOM
+                    }
                 }
+                card.addView(loadingBar)
             }
-            card.addView(loadingBar)
 
             Utils.threadPool.execute {
-                val isOgg = messageAttachment.filename.lowercase(Locale.ROOT).endsWith(".ogg")
-                val localOggFile = if (isOgg) File(ctx.cacheDir, "audio.ogg") else null
-                if (isOgg) {
-                    localOggFile!!.deleteOnExit()
-                    Http.simpleDownload(messageAttachment.url, localOggFile)
-                }
-                val metadataPath = if (isOgg) localOggFile!!.absolutePath else messageAttachment.url
-
-                var duration: Long = try {
-                    MediaMetadataRetriever().use { retriever ->
-                        retriever.setDataSource(metadataPath)
-                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        durationStr?.toLong() ?: 0L
+                val url = messageAttachment.url
+                val isOggOrOpus = messageAttachment.filename.lowercase(Locale.ROOT).endsWith(".ogg") ||
+                    messageAttachment.filename.lowercase(Locale.ROOT).endsWith(".opus")
+                var duration: Long = durationCache[url] ?: run {
+                    val dur = if (isOggOrOpus) {
+                        OggMetadataFetcher.fetch(url)?.duration?.times(1000)?.toLong() ?: 0L
+                    } else {
+                        try {
+                            MediaMetadataRetriever().use { retriever ->
+                                retriever.setDataSource(url)
+                                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+                            }
+                        } catch (e: Throwable) {
+                            0L
+                        }
                     }
-                } catch (e: Throwable) {
-                    0L
+                    durationCache[url] = dur
+                    dur
                 }
 
                 Utils.mainThread.post {
+                    card.findViewById<ProgressBar>(loadingBarId)?.visibility = View.GONE
 
-                    card.findViewById<ProgressBar>(loadingBarId)?.let { card.removeView(it) }
-
-                    if (duration == -1L) {
-                        Toast.makeText(ctx, "Failed to load audio metadata.", Toast.LENGTH_SHORT).show()
-                        return@post
-                    }
-
-                    val playerCard = MaterialCardView(ctx).apply {
-                        id = playerBarId
-                        cardElevation = 4.dp.toFloat()
-                        layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-                            topMargin = 60.dp
-                            gravity = Gravity.BOTTOM
-                        }
-
-                        isClickable = false
-                        isFocusable = false
-                        foreground = null
-                        stateListAnimator = null
+                    val existingPlayerCard = card.findViewById<MaterialCardView>(playerBarId)
+                    val playerCard = if (existingPlayerCard != null) {
+                        existingPlayerCard.visibility = View.VISIBLE
+                        existingPlayerCard
+                    } else {
+                        MaterialCardView(ctx).apply {
+                            id = playerBarId
+                            cardElevation = 4.dp.toFloat()
+                            layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                                topMargin = 60.dp
+                                gravity = Gravity.BOTTOM
+                            }
+                            isClickable = true
+                            isFocusable = false
+                            foreground = null
+                            stateListAnimator = null
+                        }.also { card.addView(it) }
                     }
 
                     val playerBar = LinearLayout(ctx, null, 0, R.i.UiKit_ViewGroup).apply {
                         orientation = LinearLayout.HORIZONTAL
                         setPadding(24, 24, 24, 24)
                         layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
-                        setOnClickListener {  }
 
-                        var mediaPlayer: MediaPlayer? = null
-                        var isPrepared = false
-                        var isPreparing = false
-                        var playing = false
-                        var timer: Timer? = null
+                        var localTimer: Timer? = null
 
                         var buttonView: ImageButton? = null
                         var progressView: TextView? = null
@@ -159,19 +224,63 @@ class AudioPlayer : Plugin() {
                         lateinit var pauseIcon: android.graphics.drawable.Drawable
                         lateinit var rewindIcon: android.graphics.drawable.Drawable
 
-                        fun resetBar() {
-                            isPrepared = false
-                            isPreparing = false
-                            playing = false
-                            timer?.cancel()
-                            timer = null
-                            mediaPlayer?.release()
-                            mediaPlayer = null
-                            Utils.mainThread.post {
-                                buttonView?.background = playIcon
-                                buttonView?.isEnabled = true
-                                sliderView?.progress = 0
-                                progressView?.text = "0:00 / ${msToTime(duration)}"
+                        fun cancelTimer() {
+                            localTimer?.cancel()
+                            localTimer = null
+                        }
+
+                        fun setIdleState() {
+                            cancelTimer()
+                            buttonView?.background = playIcon
+                            buttonView?.isEnabled = true
+                            sliderView?.progress = 0
+                            progressView?.text = "0:00 / ${msToTime(duration)}"
+                        }
+
+                        fun updateUiFromPlayer() {
+                            if (globalPlayingUrl != url || globalCurrentPlayer == null) {
+                                setIdleState()
+                                return
+                            }
+                            val pos = try {
+                                globalCurrentPlayer?.currentPosition ?: 0
+                            } catch (e: IllegalStateException) {
+                                setIdleState()
+                                cancelTimer()
+                                return
+                            }
+                            sliderView?.progress = if (duration > 0) (500 * pos / duration).toInt() else 0
+                            progressView?.text = "${msToTime(pos.toLong())} / ${msToTime(duration)}"
+                            buttonView?.background = when {
+                                globalIsCompleted -> rewindIcon
+                                globalIsPlaying -> pauseIcon
+                                else -> playIcon
+                            }
+                            buttonView?.isEnabled = true
+                        }
+
+                        fun startTimer() {
+                            cancelTimer()
+                            if (globalPlayingUrl != url || globalCurrentPlayer == null) return
+                            localTimer = Timer()
+                            localTimer!!.scheduleAtFixedRate(object : TimerTask() {
+                                override fun run() {
+                                    if (globalPlayingUrl != url || globalCurrentPlayer == null) {
+                                        cancelTimer()
+                                        Utils.mainThread.post { setIdleState() }
+                                        return
+                                    }
+                                    Utils.mainThread.post { updateUiFromPlayer() }
+                                }
+                            }, 250, 250)
+                        }
+
+                        fun restoreUiToGlobalState() {
+                            if (globalPlayingUrl == url && globalCurrentPlayer != null) {
+                                updateUiFromPlayer()
+                                startTimer()
+                            } else {
+                                setIdleState()
                             }
                         }
 
@@ -200,45 +309,6 @@ class AudioPlayer : Plugin() {
                             max = 500
                         }
 
-                        fun scheduleUpdater() {
-                            timer?.cancel()
-                            timer = Timer()
-                            timer!!.scheduleAtFixedRate(
-                                object : TimerTask() {
-                                    override fun run() {
-                                        if (!playing || duration == 0L || mediaPlayer == null)
-                                            return
-                                        Utils.mainThread.post {
-                                            progressView?.text =
-                                                "${msToTime(mediaPlayer!!.currentPosition.toLong())} / ${msToTime(duration)}"
-                                            sliderView?.progress =
-                                                (500 * mediaPlayer!!.currentPosition / duration).toInt()
-                                        }
-                                    }
-                                },
-                                2000,
-                                250
-                            )
-                        }
-
-                        fun updatePlaying() {
-                            if (!isPrepared || mediaPlayer == null) return
-                            try {
-                                if (playing) {
-                                    mediaPlayer!!.start()
-                                    scheduleUpdater()
-                                    buttonView?.background = pauseIcon
-                                } else {
-                                    mediaPlayer!!.pause()
-                                    timer?.cancel()
-                                    timer = null
-                                    buttonView?.background = playIcon
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(ctx, "Media error: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-
                         sliderView?.setOnSeekBarChangeListener(
                             object : SeekBar.OnSeekBarChangeListener {
                                 override fun onStartTrackingTouch(seekBar: SeekBar) {}
@@ -250,118 +320,122 @@ class AudioPlayer : Plugin() {
                                     fromUser: Boolean
                                 ) {
                                     if (!fromUser) return
-                                    if (!isPrepared || mediaPlayer == null) {
+                                    if (globalPlayingUrl == url && globalCurrentPlayer != null && globalCurrentPlayer!!.isPlaying) {
+                                        prevProgress = progress
+                                        val seekTo = (progress / 500f * duration).toInt()
+                                        globalCurrentPlayer!!.seekTo(seekTo)
+                                        progressView?.text =
+                                            "${msToTime(globalCurrentPlayer!!.currentPosition.toLong())} / ${msToTime(duration)}"
+                                    } else {
                                         seekBar.progress = prevProgress
-                                        return
                                     }
-                                    prevProgress = progress
-                                    mediaPlayer!!.seekTo(
-                                        (progress.div(500f) * duration).toInt()
-                                    )
-                                    progressView?.text =
-                                        "${msToTime(mediaPlayer!!.currentPosition.toLong())} / ${msToTime(duration)}"
                                 }
                             }
                         )
 
-                        allPlayerBarResets.add(::resetBar)
+                        val resetThisBar = {
+                            cancelTimer()
+                            setIdleState()
+                        }
+
+                        if (globalPlayingUrl == url && globalCurrentPlayer != null) {
+                            updateUiFromPlayer()
+                            startTimer()
+                            currentActiveBarReset = resetThisBar
+                        } else {
+                            setIdleState()
+                        }
 
                         buttonView?.setOnClickListener {
-                            val isOggFile = messageAttachment.filename.lowercase(Locale.ROOT).endsWith(".ogg")
+                            requestAudioFocus(ctx)
+
+                            val isOggOrOpusFile = messageAttachment.filename.lowercase(Locale.ROOT).endsWith(".ogg") ||
+                                messageAttachment.filename.lowercase(Locale.ROOT).endsWith(".opus")
                             val url = messageAttachment.url
 
-                            if (isPreparing) {
-                                Toast.makeText(ctx, "Please wait, loading audio...", Toast.LENGTH_SHORT).show()
-                                return@setOnClickListener
-                            }
+                            globalIsCompleted = false
 
-                            if (isPrepared && mediaPlayer != null) {
-                                if (playing) {
-
-                                    playing = false
-                                    mediaPlayer!!.pause()
-                                    timer?.cancel()
-                                    timer = null
+                            if (globalPlayingUrl == url && globalCurrentPlayer != null) {
+                                if (globalCurrentPlayer!!.isPlaying) {
+                                    globalCurrentPlayer!!.pause()
+                                    globalIsPlaying = false
                                     buttonView?.background = playIcon
                                 } else {
-
-                                    playing = true
-                                    mediaPlayer!!.start()
-                                    scheduleUpdater()
+                                    globalCurrentPlayer!!.start()
+                                    globalIsPlaying = true
                                     buttonView?.background = pauseIcon
                                 }
+                                restoreUiToGlobalState()
                                 return@setOnClickListener
                             }
 
-                            stopCurrentPlayer()
-                            resetBar()
-                            isPreparing = true
-                            buttonView?.isEnabled = false
-                            Utils.mainThread.post { buttonView?.background = null }
+                            previousActiveBarReset?.invoke()
+                            previousActiveBarReset = currentActiveBarReset
+                            currentActiveBarReset = resetThisBar
 
+                            stopCurrentPlayer() 
+
+                            buttonView?.isEnabled = false
                             Utils.threadPool.execute {
                                 var playUrl = url
-                                if (isOggFile) {
-                                    val file = File(ctx.cacheDir, "audio.ogg")
-                                    file.deleteOnExit()
-                                    Http.simpleDownload(url, file)
+                                if (isOggOrOpusFile) {
+                                    val oggCacheDir = getOggCacheDir(ctx.cacheDir)
+                                    var file = oggFileCache[url]
+                                    if (file == null || !file.exists()) {
+                                        file = File(oggCacheDir, "audio_${url.hashCode()}.ogg")
+                                        try {
+                                            Http.simpleDownload(url, file)
+                                            oggFileCache[url] = file
+                                        } catch (e: Exception) {
+                                            Utils.mainThread.post {
+                                                buttonView?.isEnabled = true
+                                                Toast.makeText(ctx, "Failed to download audio: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                            }
+                                            return@execute
+                                        }
+                                    }
                                     playUrl = file.absolutePath
                                 }
-                                try {
-                                    mediaPlayer = MediaPlayer().apply {
-                                        setDataSource(playUrl)
-                                        setOnPreparedListener {
 
-                                            if (duration == 0L) {
-                                                duration = this.duration.toLong()
-                                            }
-                                            Utils.mainThread.post {
-                                                isPrepared = true
-                                                isPreparing = false
-                                                playing = true
-                                                buttonView?.isEnabled = true
-                                                progressView?.text =
-                                                    "${msToTime(currentPosition.toLong())} / ${msToTime(duration)}"
-
-                                                mediaPlayer?.start()
-                                                scheduleUpdater()
-                                                buttonView?.background = pauseIcon
-                                                globalCurrentPlayer = this
-                                                globalCleanup = {
-                                                    playing = false
-                                                    isPrepared = false
-                                                    isPreparing = false
-                                                    timer?.cancel()
-                                                    timer = null
-                                                    Utils.mainThread.post {
-                                                        buttonView?.background = playIcon
-                                                        buttonView?.isEnabled = true
-                                                        sliderView?.progress = 0
-                                                        progressView?.text = "0:00 / ${msToTime(duration)}"
-                                                    }
-                                                    try { stop() } catch (_: Exception) {}
-                                                    try { release() } catch (_: Exception) {}
-                                                    mediaPlayer = null
-                                                }
-                                            }
+                                Utils.threadPool.execute {
+                                    val newPlayer = MediaPlayer()
+                                    try {
+                                        newPlayer.setDataSource(playUrl)
+                                        newPlayer.setOnPreparedListener {
+                                            globalCurrentPlayer = newPlayer
+                                            globalPlayingUrl = url
+                                            globalIsPlaying = true
+                                            globalIsCompleted = false 
+                                            newPlayer.start()
+                                            restoreUiToGlobalState()
+                                            startTimer()
                                         }
-                                        setOnCompletionListener {
-                                            playing = false
-                                            seekTo(0)
-                                            Utils.mainThread.post {
-                                                buttonView?.background = rewindIcon
-                                            }
+                                        newPlayer.setOnCompletionListener {
+                                            globalIsPlaying = false
+                                            globalIsCompleted = true
+                                            restoreUiToGlobalState()
                                         }
-                                        prepareAsync()
-                                    }
-                                } catch (e: Exception) {
-                                    Utils.mainThread.post {
+                                        newPlayer.prepareAsync()
+                                        globalCleanup = {
+                                            try { newPlayer.stop() } catch (_: Exception) {}
+                                            try { newPlayer.release() } catch (_: Exception) {}
+                                            buttonView?.background = playIcon
+                                            sliderView?.progress = 0
+                                            progressView?.text = "0:00 / ${msToTime(duration)}"
+                                            globalCurrentPlayer = null
+                                            globalPlayingUrl = null
+                                            globalIsPlaying = false
+                                            globalIsCompleted = false 
+                                            cancelTimer()
+                                        }
+                                    } catch (e: Exception) {
                                         Toast.makeText(ctx, "Failed to play audio: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        newPlayer.release()
+                                        restoreUiToGlobalState()
+                                        cancelTimer()
+                                    } finally {
                                         buttonView?.isEnabled = true
-                                        isPreparing = false
-                                        isPrepared = false
                                     }
-                                    resetBar()
                                 }
                             }
                         }
@@ -371,11 +445,10 @@ class AudioPlayer : Plugin() {
                         addView(sliderView)
                     }
 
+                    playerCard.removeAllViews()
                     playerCard.addView(playerBar)
-                    card.addView(playerCard)
                 }
             }
-
         }
 
         patcher.after<StoreMessages>("handleChannelSelected", Long::class.javaPrimitiveType!!) {
@@ -392,5 +465,6 @@ class AudioPlayer : Plugin() {
     override fun stop(context: Context) {
         patcher.unpatchAll()
         stopCurrentPlayer()
+        deleteOggCacheFiles(context.cacheDir)
     }
 }
