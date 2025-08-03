@@ -123,5 +123,5 @@ Play audio attachments directly in chat. (Still has multi file bugs don't @ me)
 ### [AttachmentPickerSizes](/raw/builds/AttachmentPickerSizes.zip)
 Add upload sizes to the attachment picker.
 
-### [ReactionQueue](/raw/builds/ReactionQueue.zip)
+### [ReactionQueue](/../../raw/builds/ReactionQueue.zip)
 Queue up reactions to avoid hitting the ratelimit.
