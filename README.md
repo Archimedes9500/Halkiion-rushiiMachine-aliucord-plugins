@@ -23,65 +23,65 @@
 
 ### Manual
 
-Download the plugins from [here](/tree/builds) and move the zip to `/Aliucord/plugins`
+Download the plugins from [here](/../../tree/builds) and move the zip to `/Aliucord/plugins`
 
 # Plugins
 
-### [FirstMessage](/raw/builds/FirstMessage.zip)
+### [FirstMessage](/../../raw/builds/FirstMessage.zip)
 Finds the first message from a user/channel. (/firstmessage)
 
-### [OpenDebug](/raw/builds/OpenDebug.zip)
+### [OpenDebug](/../../raw/builds/OpenDebug.zip)
 Open the debug log from the gift icon in the chat view and (toggleable) open debug log on start.
 
-### [SplitMessages](/raw/builds/SplitMessages.zip)
+### [SplitMessages](/../../raw/builds/SplitMessages.zip)
 Split messages longer than 2000/4000 characters into multiple messages.
 
-### [ConfigurableStickerSizes](/raw/builds/ConfigurableStickerSizes.zip)
+### [ConfigurableStickerSizes](/../../raw/builds/ConfigurableStickerSizes.zip)
 Makes sticker sizes configurable.
 
-### [NoUppercase](/raw/builds/NoUppercase.zip)
+### [NoUppercase](/../../raw/builds/NoUppercase.zip)
 Reverts uppercased headers in common places.
 
-### [StreamerMode](/raw/builds/StreamerMode.zip)
+### [StreamerMode](/../../raw/builds/StreamerMode.zip)
 Hide identifiable information. (Email, phone number, name, user discriminators)
 
-### [NoNitroAvatars](/raw/builds/NoNitroAvatars.zip)
+### [NoNitroAvatars](/../../raw/builds/NoNitroAvatars.zip)
 Hides per-server user avatars everywhere.
 
-### [OpenProfileInReactions](/raw/builds/OpenProfileInReactions.zip)
+### [OpenProfileInReactions](/../../raw/builds/OpenProfileInReactions.zip)
 Open users' profiles in reaction lists on click.
 
-### [NoBuiltInCommands](/raw/builds/NoBuiltInCommands.zip)
+### [NoBuiltInCommands](/../../raw/builds/NoBuiltInCommands.zip)
 Remove Discord's built-in slash commands.
 
-### [HideMessages](/raw/builds/HideMessages.zip)
+### [HideMessages](/../../raw/builds/HideMessages.zip)
 Delete messages locally until you restart. (Message context menu option)
 
-### [FixBlockedReplies](/raw/builds/FixBlockedReplies.zip)
+### [FixBlockedReplies](/../../raw/builds/FixBlockedReplies.zip)
 Show reply author, (optionally) show reply content, and fix clicking on them.
 
-### [NoPingWidthLimit](/raw/builds/NoPingWidthLimit.zip)
+### [NoPingWidthLimit](/../../raw/builds/NoPingWidthLimit.zip)
 Increase the max width of the ping count label.
 
-### [BetterTm](/raw/builds/BetterTm.zip)
+### [BetterTm](/../../raw/builds/BetterTm.zip)
 Replaces the TM emoji with one that's visible.
 
-### [NoTimestamps](/raw/builds/NoTimestamps.zip)
+### [NoTimestamps](/../../raw/builds/NoTimestamps.zip)
 Hide timestamps on messages.
 
-### [SlashNick](/raw/builds/SlashNick.zip)
+### [SlashNick](/../../raw/builds/SlashNick.zip)
 Bring the /nick command to mobile.
 
-### [ClickableMentions](/raw/builds/ClickableMentions.zip)
+### [ClickableMentions](/../../raw/builds/ClickableMentions.zip)
 Enable clicking user/channel mentions everywhere. (ex. embeds/channel topics)
 
-### [Counters](/raw/builds/Counters.zip)
+### [Counters](/../../raw/builds/Counters.zip)
 Show an servers/online friend count in your server list.
 
-### [NormalizeNames](/raw/builds/NormalizeNames.zip)
+### [NormalizeNames](/../../raw/builds/NormalizeNames.zip)
 Display nick/user names with some fancy chars reverted to normal.
 
-### [Gestures](/raw/builds/Gestures.zip) (WIP)
+### [Gestures](/../../raw/builds/Gestures.zip) (WIP)
 Add the following gestures to Discord:
 
 - Swipe left on chat input to paste
@@ -89,38 +89,38 @@ Add the following gestures to Discord:
 
 Note that this breaks selecting text but ¯\\\_(ツ)_/¯
 
-### [CloseDMs](/raw/builds/CloseDMs.zip)
+### [CloseDMs](/../../raw/builds/CloseDMs.zip)
 Shortcut to close DMs in the DM context menu.
 
-### [CloneChannels](/raw/builds/CloneChannels.zip)
+### [CloneChannels](/../../raw/builds/CloneChannels.zip)
 Quickly clone text channels in the context menu. (perms, name, topic, etc.)
 
-### [TypingIndicators](/raw/builds/TypingIndicators.zip)
+### [TypingIndicators](/../../raw/builds/TypingIndicators.zip)
 Show typing indicators in the channel list.
 
-### [TypingUsers](/raw/builds/TypingUsers.zip)
+### [TypingUsers](/../../raw/builds/TypingUsers.zip)
 Opens a clickable list of all the currently typing users by pressing on the bar.
 **UNMAINTAINED**
 
-### [ReplaceAllText](/raw/builds/ReplaceAllText.zip)
+### [ReplaceAllText](/../../raw/builds/ReplaceAllText.zip)
 Replaces every single piece of text with what you want. YOU NEED TO REMEMBER HOW TO DISABLE THIS IN THE PLUGIN TAB BEFORE ENABLING IT.
 
-### [AlternateReport](/raw/builds/AlternateReport.zip)
+### [AlternateReport](/../../raw/builds/AlternateReport.zip)
 Replaces the message report button with opening the report form.
 
-### [Insult](/raw/builds/Insult.zip)
+### [Insult](/../../raw/builds/Insult.zip)
 Send insults with /insult
 
-### [FriendsExporter](/raw/builds/FriendsExporter.zip)
+### [FriendsExporter](/../../raw/builds/FriendsExporter.zip)
 Export your friends list with /friendsexport
 
-### [1ClickDelete](/raw/builds/1ClickDelete.zip)
+### [1ClickDelete](/../../raw/builds/1ClickDelete.zip)
 Disable the delete confirmation on messages.
 
-### [AudioPlayer](/raw/builds/AudioPlayer.zip)
+### [AudioPlayer](/../../raw/builds/AudioPlayer.zip)
 Play audio attachments directly in chat. (Still has multi file bugs don't @ me)
 
-### [AttachmentPickerSizes](/raw/builds/AttachmentPickerSizes.zip)
+### [AttachmentPickerSizes](/../../raw/builds/AttachmentPickerSizes.zip)
 Add upload sizes to the attachment picker.
 
 ### [ReactionQueue](/../../raw/builds/ReactionQueue.zip)
