@@ -1,79 +1,89 @@
 import com.aliucord.gradle.AliucordExtension
 import com.android.build.gradle.BaseExtension
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 buildscript {
-	repositories {
-		google()
-		mavenCentral()
-		maven("https://maven.aliucord.com/snapshots")
-		maven("https://jitpack.io")
-	}
-	dependencies {
-		classpath("com.android.tools.build:gradle:7.0.4")
-		classpath("com.github.Aliucord:gradle:main-SNAPSHOT")
-		classpath("com.aliucord:jadb:1.2.1-SNAPSHOT")
+    repositories {
+        google()
+        mavenCentral()
+        // Aliucords Maven repo which contains our tools and dependencies
+        maven("https://maven.aliucord.com/snapshots")
+        // Shitpack which still contains some Aliucord dependencies for now. TODO: Remove
+        maven("https://jitpack.io")
+    }
 
-		classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.6.21")
-	}
+    dependencies {
+        classpath("com.android.tools.build:gradle:7.0.4")
+        // Aliucord gradle plugin which makes everything work and builds plugins
+        classpath("com.aliucord:gradle:main-SNAPSHOT")
+        // Kotlin support. Remove if you want to use Java
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.5.21")
+    }
 }
 
-fun Project.android(configuration: BaseExtension.() -> Unit) =
-	extensions.getByName<BaseExtension>("android").configuration()
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://maven.aliucord.com/snapshots")
+    }
+}
 
-fun Project.aliucord(configuration: AliucordExtension.() -> Unit) =
-	extensions.getByName<AliucordExtension>("aliucord").configuration()
+fun Project.aliucord(configuration: AliucordExtension.() -> Unit) = extensions.getByName<AliucordExtension>("aliucord").configuration()
+
+fun Project.android(configuration: BaseExtension.() -> Unit) = extensions.getByName<BaseExtension>("android").configuration()
 
 subprojects {
-	apply(plugin = "com.android.library")
-	apply(plugin = "com.aliucord.gradle")
-	apply(plugin = "kotlin-android")
+    apply(plugin = "com.android.library")
+    apply(plugin = "com.aliucord.gradle")
+    // Remove if using Java
+    apply(plugin = "kotlin-android")
 
-	aliucord {
-		author("rushii", 0L, false)
-		updateUrl.set("https://raw.githubusercontent.com/rushiiMachine/aliucord-plugins/builds/updater.json")
-		buildUrl.set("https://raw.githubusercontent.com/rushiiMachine/aliucord-plugins/builds/%s.zip")
-	}
+    // Fill out with your info
+    aliucord {
+        author("DISCORD USERNAME", 123456789L)
+        updateUrl.set("https://gitea.com/Archimedes5000/aliucord-plugins/raw/branch/builds/updater.json")
+        buildUrl.set("https://gitea.com/Archimedes5000/aliucord-plugins/raw/branch/builds/%s.zip")
+    }
 
-	android {
-		compileSdkVersion(30)
+    android {
+        compileSdkVersion(31)
 
-		defaultConfig {
-			minSdk = 24
-			targetSdk = 30
-		}
+        defaultConfig {
+            minSdk = 24
+            targetSdk = 31
+        }
 
-		compileOptions {
-			sourceCompatibility = JavaVersion.VERSION_11
-			targetCompatibility = JavaVersion.VERSION_11
-		}
+        compileOptions {
+            sourceCompatibility = JavaVersion.VERSION_11
+            targetCompatibility = JavaVersion.VERSION_11
+        }
 
-		tasks.withType<KotlinCompile> {
-			kotlinOptions {
-				jvmTarget = "11"
-				freeCompilerArgs = freeCompilerArgs +
-					"-Xno-call-assertions" +
-					"-Xno-param-assertions" +
-					"-Xno-receiver-assertions"
-			}
-		}
-	}
+        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+            kotlinOptions {
+                jvmTarget = "11" // Required
+                // Disables some unnecessary features
+                freeCompilerArgs = freeCompilerArgs +
+                        "-Xno-call-assertions" +
+                        "-Xno-param-assertions" +
+                        "-Xno-receiver-assertions"
+            }
+        }
+    }
 
-	repositories {
-		google()
-		mavenCentral()
-		maven("https://maven.aliucord.com/snapshots")
-	}
+    dependencies {
+        val discord by configurations
+        val implementation by configurations
 
-	dependencies {
-		val discord by configurations
-		val compileOnly by configurations
+        // Stubs for all Discord classes
+        discord("com.discord:discord:aliucord-SNAPSHOT")
+        implementation("com.aliucord:Aliucord:main-SNAPSHOT")
 
-		discord("com.discord:discord:aliucord-SNAPSHOT")
-		compileOnly("com.aliucord:Aliucord:main-SNAPSHOT")
-	}
+        implementation("androidx.appcompat:appcompat:1.4.0")
+        implementation("com.google.android.material:material:1.4.0")
+        implementation("androidx.constraintlayout:constraintlayout:2.1.2")
+    }
 }
 
 task<Delete>("clean") {
-	delete(rootProject.buildDir)
+    delete(rootProject.buildDir)
 }
